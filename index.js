@@ -45,7 +45,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
 });
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log("Companion bot ready as", client.user.tag);
   try {
     const rest = new REST({ version: "10" }).setToken(config.botToken);
