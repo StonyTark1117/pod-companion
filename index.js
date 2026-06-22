@@ -102,6 +102,8 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isChatInputCommand()) {
       const name = interaction.commandName;
+      const title = interaction.options.getString?.("title");
+      console.log(`[cmd] /${name}${title ? ` "${title}"` : ""} by ${interaction.user.tag}`);
 
       if (name === "play") {
         const vc = interaction.member?.voice?.channel;
@@ -158,6 +160,7 @@ client.on("interactionCreate", async (interaction) => {
     // Buttons under the Now Playing card.
     if (interaction.isButton()) {
       const action = interaction.customId.split(":")[1];
+      console.log(`[btn] ${action} by ${interaction.user.tag}`);
       if (action === "next" || action === "back") {
         await interaction.deferUpdate();
         const r = await podPost("/" + action, {});
