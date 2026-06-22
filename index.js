@@ -89,12 +89,19 @@ client.on("interactionCreate", async (interaction) => {
     // Autocomplete for /play title — live Plex search via the control API.
     if (interaction.isAutocomplete()) {
       const focused = interaction.options.getFocused();
+      // If the user typed an episode token (s1e3 / 1x03), carry it onto each
+      // suggestion's value — otherwise picking a suggestion replaces the whole
+      // input with just the show title and the episode is lost (so it'd play S1E1).
+      const epMatch = (focused || "").match(/\b[sS]\d{1,2}\s*[eExX]\d{1,3}\b/) ||
+                      (focused || "").match(/(?:^|\s)\d{1,2}x\d{1,3}(?=\s|$)/);
+      const epToken = epMatch ? epMatch[0].trim() : "";
+      const epLabel = epToken ? ` — ${epToken.toUpperCase().replace(/\s+/g, "")}` : "";
       let choices = [];
       try {
         const r = await podGet(`/search?q=${encodeURIComponent(focused || "")}`);
         choices = (r.results || []).slice(0, 25).map(m => ({
-          name: `${m.type === "show" ? "📺" : "🎬"} ${m.title}${m.year ? ` (${m.year})` : ""}`.slice(0, 100),
-          value: String(m.title).slice(0, 100)
+          name: `${m.type === "show" ? "📺" : "🎬"} ${m.title}${m.year ? ` (${m.year})` : ""}${epLabel}`.slice(0, 100),
+          value: (epToken ? `${m.title} ${epToken}` : String(m.title)).slice(0, 100)
         }));
       } catch (e) { /* control API down -> empty suggestions */ }
       return interaction.respond(choices);
