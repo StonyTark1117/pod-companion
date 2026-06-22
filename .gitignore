@@ -1,0 +1,8 @@
+# Secrets — NEVER commit (bot token + shared control-API secret)
+config.json
+
+# Dependencies
+node_modules/
+
+# Logs / local
+*.log

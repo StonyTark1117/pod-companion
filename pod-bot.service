@@ -1,0 +1,14 @@
+[Unit]
+Description=PoD Companion - Discord slash-command bot for the PoD Plex streamer
+After=network-online.target pod.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pod-bot
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

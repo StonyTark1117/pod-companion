@@ -1,0 +1,8 @@
+{
+  "botToken": "DISCORD_BOT_TOKEN",
+  "guildId": "STREAM_GUILD_ID",
+  "podApi": {
+    "url": "http://127.0.0.1:8742",
+    "secret": "MUST_MATCH_PoD_controlApi_secret"
+  }
+}
