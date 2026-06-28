@@ -29,6 +29,7 @@ const commands = [
       .setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName("next").setDescription("Skip to the next episode (TV)"),
   new SlashCommandBuilder().setName("back").setDescription("Go to the previous episode (TV)"),
+  new SlashCommandBuilder().setName("pause").setDescription("Pause or resume the current movie/episode"),
   new SlashCommandBuilder().setName("stop").setDescription("Stop streaming and disconnect"),
   new SlashCommandBuilder().setName("nowplaying").setDescription("Show what's currently playing"),
   new SlashCommandBuilder()
@@ -58,19 +59,43 @@ client.once("clientReady", async () => {
 });
 
 // --- UI helpers ----------------------------------------------------------
-function controls() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("pod:back").setLabel("Back").setEmoji("⏮️").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("pod:next").setLabel("Next").setEmoji("⏭️").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("pod:stop").setLabel("Stop").setEmoji("⏹️").setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId("pod:autoplay").setLabel("Autoplay").setEmoji("📺").setStyle(ButtonStyle.Secondary)
+// Buttons adapt to what's playing. Pause/Resume + Stop are always shown. Back/Next
+// and Autoplay only appear when there's more than one item to move between — a TV
+// show, or a movie that's part of a collection. A standalone movie gets just
+// Pause + Stop (no episode/sequel controls). `r` is the backend playState payload.
+function controls(r) {
+  r = r || {};
+  const row = new ActionRowBuilder();
+  if (r.multi) {
+    row.addComponents(
+      new ButtonBuilder().setCustomId("pod:back").setLabel("Back").setEmoji("⏮️").setStyle(ButtonStyle.Secondary).setDisabled(r.hasPrev === false),
+      new ButtonBuilder().setCustomId("pod:next").setLabel("Next").setEmoji("⏭️").setStyle(ButtonStyle.Primary).setDisabled(r.hasNext === false)
+    );
+  }
+  row.addComponents(
+    new ButtonBuilder().setCustomId("pod:pause").setLabel(r.paused ? "Resume" : "Pause").setEmoji(r.paused ? "▶️" : "⏸️").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("pod:stop").setLabel("Stop").setEmoji("⏹️").setStyle(ButtonStyle.Danger)
   );
+  if (r.multi) {
+    row.addComponents(
+      new ButtonBuilder().setCustomId("pod:autoplay").setLabel("Autoplay").setEmoji("📺").setStyle(ButtonStyle.Secondary)
+    );
+  }
+  return row;
 }
 
 function nowEmbed(r, footer) {
-  const e = new EmbedBuilder().setColor(0xe5a00d).setTitle("▶️ Now Playing")
+  const e = new EmbedBuilder().setColor(0xe5a00d)
+    .setTitle(r.paused ? "⏸️ Paused" : "▶️ Now Playing")
     .setDescription(r.title || "—");
-  if (r.S != null && r.E != null) e.addFields({ name: "Episode", value: `S${r.S}E${r.E}`, inline: true });
+  if (r.kind === "movie") {
+    // Movies have no episode — show what kind of film it is instead.
+    if (r.category) e.addFields({ name: "Category", value: r.category, inline: true });
+    if (r.year) e.addFields({ name: "Year", value: String(r.year), inline: true });
+    if (r.collection) e.addFields({ name: "Collection", value: r.collection, inline: true });
+  } else if (r.S != null && r.E != null) {
+    e.addFields({ name: "Episode", value: `S${r.S}E${r.E}`, inline: true });
+  }
   if (footer) e.setFooter({ text: footer });
   return e;
 }
@@ -120,7 +145,7 @@ client.on("interactionCreate", async (interaction) => {
         const r = await podPost("/play", {
           query: title, guildId: interaction.guildId, channelId: vc.id, textChannelId: interaction.channelId
         });
-        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls()] });
+        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls(r)] });
         if (r.reason === "ep-not-found") return interaction.editReply(`❌ Found "${r.title}" but not S${r.epTarget.season}E${r.epTarget.episode}.`);
         if (r.reason === "not-found") {
           const list = (r.suggestions || []).map(m => `• ${m.title}${m.year ? ` (${m.year})` : ""}`).join("\n");
@@ -133,8 +158,16 @@ client.on("interactionCreate", async (interaction) => {
       if (name === "next" || name === "back") {
         await interaction.deferReply();
         const r = await podPost("/" + name, {});
-        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls()] });
+        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls(r)] });
         return interaction.editReply(r.reason === "end" ? "⚠️ No more items." : "❌ Nothing playing.");
+      }
+
+      if (name === "pause") {
+        await interaction.deferReply();
+        await podPost("/pause", {});            // toggle
+        const r = await podGet("/nowplaying");
+        if (!r.playing) return interaction.editReply("Nothing is playing.");
+        return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls(r)] });
       }
 
       if (name === "stop") {
@@ -145,7 +178,7 @@ client.on("interactionCreate", async (interaction) => {
       if (name === "nowplaying") {
         const r = await podGet("/nowplaying");
         if (!r.playing) return interaction.reply({ content: "Nothing is playing.", ...EPH });
-        return interaction.reply({ embeds: [nowEmbed(r, `Autoplay ${r.autoplay ? "on" : "off"}`)], components: [controls()] });
+        return interaction.reply({ embeds: [nowEmbed(r, `Autoplay ${r.autoplay ? "on" : "off"}`)], components: [controls(r)] });
       }
 
       if (name === "autoplay") {
@@ -159,7 +192,7 @@ client.on("interactionCreate", async (interaction) => {
         const episode = interaction.options.getInteger("episode");
         await interaction.deferReply();
         const r = await podPost("/qp", { season, episode });
-        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls()] });
+        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls(r)] });
         return interaction.editReply(r.reason === "not-found" ? `❌ S${season}E${episode} not found.` : "❌ Nothing playing.");
       }
     }
@@ -171,8 +204,15 @@ client.on("interactionCreate", async (interaction) => {
       if (action === "next" || action === "back") {
         await interaction.deferUpdate();
         const r = await podPost("/" + action, {});
-        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls()] });
+        if (r.ok) return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls(r)] });
         return interaction.followUp({ content: r.reason === "end" ? "⚠️ No more items." : "❌ Nothing playing.", ...EPH });
+      }
+      if (action === "pause") {
+        await interaction.deferUpdate();
+        await podPost("/pause", {});            // toggle freeze/resume
+        const r = await podGet("/nowplaying");  // re-read so the card flips Pause<->Resume
+        if (!r.playing) return interaction.editReply({ content: "Nothing is playing.", embeds: [], components: [] });
+        return interaction.editReply({ embeds: [nowEmbed(r)], components: [controls(r)] });
       }
       if (action === "stop") {
         await interaction.deferUpdate();
